@@ -12,3 +12,5 @@ docker compose up -d
 5. На странице http://localhost/login/ можно авторизоваться.
 6. Админка находится по адресу http://localhost/admin/
 
+Ссылка на GitHub-репозиторий: https://github.com/Alex-tskm/bad-server
+Александр Мыценко, когорта 44

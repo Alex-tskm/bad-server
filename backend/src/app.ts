@@ -1,15 +1,15 @@
-import { errors } from 'celebrate'; // Импорт middleware для обработки ошибок валидации из библиотеки celebrate (используется с Joi для валидации запросов)
-import cookieParser from 'cookie-parser'; // Импорт middleware для парсинга cookies из HTTP-запросов
-import cors from 'cors'; // Импорт middleware для настройки CORS (разрешения кросс-доменных запросов)
-import 'dotenv/config'; // Загрузка переменных окружения из файла .env в process.env
-import express, { json, urlencoded } from 'express'; // Импорт фреймворка Express и встроенных middleware для парсинга JSON и URL-encoded данных
-import mongoose from 'mongoose'; // Импорт библиотеки для работы с MongoDB (ODM)
-import path from 'path'; // Импорт встроенного модуля Node.js для работы с файловыми путями
-import { DB_ADDRESS } from './config'; // Импорт строки подключения к базе данных MongoDB из конфигурационного файла
-import errorHandler from './middlewares/error-handler'; // Импорт кастомного middleware-обработчика ошибок приложения
-import serveStatic from './middlewares/serverStatic'; // Импорт кастомного middleware для раздачи статических файлов (возможно, с дополнительной логикой)
-import routes from './routes'; // Импорт всех маршрутов приложения (API endpoints)
-import rateLimit from 'express-rate-limit'; // Импорт middleware для ограничения частоты запросов (защита от перегрузок и брутфорса)
+import { errors } from 'celebrate'; 
+import cookieParser from 'cookie-parser'; 
+import cors from 'cors'; 
+import 'dotenv/config'; 
+import express, { json, urlencoded } from 'express'; 
+import mongoose from 'mongoose'; 
+import path from 'path'; 
+import { DB_ADDRESS } from './config'; 
+import errorHandler from './middlewares/error-handler'; 
+import serveStatic from './middlewares/serverStatic'; 
+import routes from './routes'; 
+import rateLimit from 'express-rate-limit'; 
 
 const { PORT = 3000 } = process.env; // Извлечение порта для сервера из переменных окружения, по умолчанию — 3000
 const app = express(); // Создание экземпляра приложения Express

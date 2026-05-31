@@ -198,7 +198,7 @@ const refreshAccessToken = async (
 // GET /auth/roles
 // Обработчик получения ролей текущего пользователя
 const getCurrentUserRoles = async (
-    req: Request,
+    _req: Request,
     res: Response,
     next: NextFunction
 ) => {

@@ -5,11 +5,11 @@ import 'dotenv/config';
 import express, { json, urlencoded } from 'express'; 
 import mongoose from 'mongoose'; 
 import path from 'path'; 
+import rateLimit from 'express-rate-limit'; 
 import { DB_ADDRESS } from './config'; 
 import errorHandler from './middlewares/error-handler'; 
 import serveStatic from './middlewares/serverStatic'; 
 import routes from './routes'; 
-import rateLimit from 'express-rate-limit'; 
 
 const { PORT = 3000 } = process.env; // Извлечение порта для сервера из переменных окружения, по умолчанию — 3000
 const app = express(); // Создание экземпляра приложения Express

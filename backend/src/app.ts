@@ -1,43 +1,69 @@
-import { errors } from 'celebrate'
-import cookieParser from 'cookie-parser'
-import cors from 'cors'
-import 'dotenv/config'
-import express, { json, urlencoded } from 'express'
-import mongoose from 'mongoose'
-import path from 'path'
-import { DB_ADDRESS } from './config'
-import errorHandler from './middlewares/error-handler'
-import serveStatic from './middlewares/serverStatic'
-import routes from './routes'
+import { errors } from 'celebrate'; // Импорт middleware для обработки ошибок валидации из библиотеки celebrate (используется с Joi для валидации запросов)
+import cookieParser from 'cookie-parser'; // Импорт middleware для парсинга cookies из HTTP-запросов
+import cors from 'cors'; // Импорт middleware для настройки CORS (разрешения кросс-доменных запросов)
+import 'dotenv/config'; // Загрузка переменных окружения из файла .env в process.env
+import express, { json, urlencoded } from 'express'; // Импорт фреймворка Express и встроенных middleware для парсинга JSON и URL-encoded данных
+import mongoose from 'mongoose'; // Импорт библиотеки для работы с MongoDB (ODM)
+import path from 'path'; // Импорт встроенного модуля Node.js для работы с файловыми путями
+import { DB_ADDRESS } from './config'; // Импорт строки подключения к базе данных MongoDB из конфигурационного файла
+import errorHandler from './middlewares/error-handler'; // Импорт кастомного middleware-обработчика ошибок приложения
+import serveStatic from './middlewares/serverStatic'; // Импорт кастомного middleware для раздачи статических файлов (возможно, с дополнительной логикой)
+import routes from './routes'; // Импорт всех маршрутов приложения (API endpoints)
+import rateLimit from 'express-rate-limit'; // Импорт middleware для ограничения частоты запросов (защита от перегрузок и брутфорса)
 
-const { PORT = 3000 } = process.env
-const app = express()
+const { PORT = 3000 } = process.env; // Извлечение порта для сервера из переменных окружения, по умолчанию — 3000
+const app = express(); // Создание экземпляра приложения Express
 
-app.use(cookieParser())
+// Настройка middleware для ограничения частоты запросов:
+// окно — 1 минута, максимум 50 запросов, кастомное сообщение при превышении лимита
+const limiter = rateLimit({
+    windowMs: 60 * 1000, // 1 минута (в миллисекундах)
+    max: 50, // максимальное количество запросов в указанное окно
+    message: 'Слишком много запросов. Попробуйте позже', // сообщение, возвращаемое клиенту при превышении лимита
+});
 
-app.use(cors())
-// app.use(cors({ origin: ORIGIN_ALLOW, credentials: true }));
-// app.use(express.static(path.join(__dirname, 'public')));
+app.use(limiter); // Подключение middleware для ограничения запросов ко всем маршрутам приложения
+app.use(cookieParser()); // Подключение middleware для парсинга cookies
 
-app.use(serveStatic(path.join(__dirname, 'public')))
+// Настройка CORS: разрешаем запросы с источника, указанного в ORIGIN_ALLOW, и разрешаем передачу credentials (например, cookies)
+app.use(cors({ origin: process.env.ORIGIN_ALLOW, credentials: true }));
+// Закомментированная строка app.use(cors()) — вариант без параметров, разрешает запросы со всех источников (небезопасно для продакшена)
 
-app.use(urlencoded({ extended: true }))
-app.use(json())
+// Раздача статических файлов из директории 'public' с использованием встроенного middleware Express
+app.use(express.static(path.join(__dirname, 'public')));
 
-app.options('*', cors())
-app.use(routes)
-app.use(errors())
-app.use(errorHandler)
+// Раздача статических файлов через кастомное middleware serveStatic из той же директории 'public'
+// Внимание: это дублирование функционала, возможно, избыточно
+app.use(serveStatic(path.join(__dirname, 'public')));
+
+// Подключение middleware для парсинга URL-encoded тел запросов (например, данных из HTML-форм)
+app.use(urlencoded({ extended: true }));
+// Подключение middleware для парсинга JSON-тел запросов
+app.use(json());
+
+// Обработка preflight OPTIONS-запросов для CORS — разрешает все маршруты для предварительных запросов
+app.options('*', cors());
+
+// Подключение всех маршрутов приложения (основные API endpoints)
+app.use(routes);
+// Подключение middleware от celebrate для форматирования и обработки ошибок валидации
+app.use(errors());
+// Подключение кастомного обработчика ошибок (должен быть последним в цепочке middleware)
+app.use(errorHandler);
 
 // eslint-disable-next-line no-console
-
+// Асинхронная функция для инициализации приложения: подключение к БД и запуск сервера
 const bootstrap = async () => {
     try {
-        await mongoose.connect(DB_ADDRESS)
-        await app.listen(PORT, () => console.log('ok'))
+        // Подключение к базе данных MongoDB по строке подключения из конфигурации
+        await mongoose.connect(DB_ADDRESS);
+        // Запуск сервера на указанном порту; при успешном старте выводится сообщение 'ok'
+        await app.listen(PORT, () => console.log('ok'));
     } catch (error) {
-        console.error(error)
+        // При возникновении ошибки (например, проблемы с подключением к БД или занятом порту) — вывод ошибки в консоль
+        console.error(error);
     }
-}
+};
 
-bootstrap()
+// Запуск инициализации приложения (подключение к БД и старт сервера)
+bootstrap();

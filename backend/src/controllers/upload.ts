@@ -1,8 +1,7 @@
-import { NextFunction, Request, Response } from 'express'; 
-import { constants } from 'http2'; 
+import { NextFunction, Request, Response } from 'express';
+import { constants } from 'http2';
+import sharp from 'sharp';
 import BadRequestError from '../errors/bad-request-error'; 
-import sharp from 'sharp'; 
-import { v4 as uuidv4 } from 'uuid'; 
 
 // Обработчик загрузки файла (изображения)
 export const uploadFile = async (
@@ -16,7 +15,8 @@ export const uploadFile = async (
     }
 
     try {
-        const file = req.file; // Извлекаем информацию о загруженном файле
+        // Используем деструктуризацию (исправление ошибки prefer-destructuring)
+        const { file } = req;
 
         // Минимально допустимый размер файла — 2 KB
         const MIN_SIZE = 2 * 1024;

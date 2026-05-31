@@ -1,8 +1,8 @@
-import { Request, Express } from 'express'; 
-import multer, { FileFilterCallback } from 'multer'; 
-import { mkdirSync } from 'fs'; 
-import path, { join } from 'path'; 
-import { v4 as uuidv4 } from 'uuid'; 
+import { Request, Express } from 'express';
+import multer, { FileFilterCallback } from 'multer';
+import { mkdirSync } from 'fs';
+import path, { join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 // Определяем типы для колбэков Multer:
 // DestinationCallback — для указания пути сохранения файла

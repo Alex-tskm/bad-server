@@ -1,11 +1,11 @@
 import { NextFunction, Request, Response } from 'express'; 
 import { FilterQuery, Error as MongooseError, Types } from 'mongoose'; 
+import sanitizeHtml from 'sanitize-html'; 
 import BadRequestError from '../errors/bad-request-error'; 
 import NotFoundError from '../errors/not-found-error'; 
 import Order, { IOrder } from '../models/order'; 
 import Product, { IProduct } from '../models/product'; 
 import User from '../models/user'; 
-import sanitizeHtml from 'sanitize-html'; 
 import { escapeRegex } from '../utils/escapeRegex'; 
 
 // eslint-disable-next-line max-len

@@ -1,20 +1,25 @@
-import { NextFunction, Request, Response } from 'express'
-import { FilterQuery, Error as MongooseError, Types } from 'mongoose'
-import BadRequestError from '../errors/bad-request-error'
-import NotFoundError from '../errors/not-found-error'
-import Order, { IOrder } from '../models/order'
-import Product, { IProduct } from '../models/product'
-import User from '../models/user'
+import { NextFunction, Request, Response } from 'express'; 
+import { FilterQuery, Error as MongooseError, Types } from 'mongoose'; 
+import BadRequestError from '../errors/bad-request-error'; 
+import NotFoundError from '../errors/not-found-error'; 
+import Order, { IOrder } from '../models/order'; 
+import Product, { IProduct } from '../models/product'; 
+import User from '../models/user'; 
+import sanitizeHtml from 'sanitize-html'; 
+import { escapeRegex } from '../utils/escapeRegex'; 
 
 // eslint-disable-next-line max-len
 // GET /orders?page=2&limit=5&sort=totalAmount&order=desc&orderDateFrom=2024-07-01&orderDateTo=2024-08-01&status=delivering&totalAmountFrom=100&totalAmountTo=1000&search=%2B1
+// Маршрут для получения списка заказов с фильтрацией, сортировкой и пагинацией
 
+// Обработчик получения списка заказов с расширенной фильтрацией
 export const getOrders = async (
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
     try {
+        // Извлекаем параметры запроса: пагинация, сортировка, фильтры
         const {
             page = 1,
             limit = 10,
@@ -26,49 +31,55 @@ export const getOrders = async (
             orderDateFrom,
             orderDateTo,
             search,
-        } = req.query
+        } = req.query;
 
-        const filters: FilterQuery<Partial<IOrder>> = {}
+        // Объект фильтров для MongoDB-запроса
+        const filters: FilterQuery<Partial<IOrder>> = {};
 
+        // Фильтрация по статусу заказа
         if (status) {
-            if (typeof status === 'object') {
-                Object.assign(filters, status)
+            if (typeof status !== 'string') {
+                throw new BadRequestError('Некорректный status');
             }
-            if (typeof status === 'string') {
-                filters.status = status
-            }
+            filters.status = status;
         }
 
+        // Фильтрация по минимальной сумме заказа
         if (totalAmountFrom) {
             filters.totalAmount = {
                 ...filters.totalAmount,
-                $gte: Number(totalAmountFrom),
-            }
+                $gte: Number(totalAmountFrom), // $gte — greater than or equal (больше или равно)
+            };
         }
 
+        // Фильтрация по максимальной сумме заказа
         if (totalAmountTo) {
             filters.totalAmount = {
                 ...filters.totalAmount,
-                $lte: Number(totalAmountTo),
-            }
+                $lte: Number(totalAmountTo), // $lte — less than or equal (меньше или равно)
+            };
         }
 
+        // Фильтрация по дате создания заказа (от)
         if (orderDateFrom) {
             filters.createdAt = {
                 ...filters.createdAt,
                 $gte: new Date(orderDateFrom as string),
-            }
+            };
         }
 
+        // Фильтрация по дате создания заказа (до)
         if (orderDateTo) {
             filters.createdAt = {
                 ...filters.createdAt,
                 $lte: new Date(orderDateTo as string),
-            }
+            };
         }
 
+        // Агрегационный пайплайн для сложного запроса с JOIN-операциями
         const aggregatePipeline: any[] = [
-            { $match: filters },
+            { $match: filters }, // Применяем фильтры к заказам
+            // JOIN с коллекцией товаров: связываем заказы с товарами по полю products
             {
                 $lookup: {
                     from: 'products',
@@ -77,6 +88,7 @@ export const getOrders = async (
                     as: 'products',
                 },
             },
+            // JOIN с коллекцией пользователей: связываем заказы с клиентами
             {
                 $lookup: {
                     from: 'users',
@@ -85,92 +97,109 @@ export const getOrders = async (
                     as: 'customer',
                 },
             },
-            { $unwind: '$customer' },
-            { $unwind: '$products' },
-        ]
+            { $unwind: '$customer' }, // Разворачиваем массив customer в объект
+            { $unwind: '$products' },  // Разворачиваем массив товаров в отдельные документы
+        ];
 
+        // Поиск по названию товара или номеру заказа
         if (search) {
-            const searchRegex = new RegExp(search as string, 'i')
-            const searchNumber = Number(search)
+            const searchRegex = new RegExp(escapeRegex(search as string), 'i'); // Экранируем спецсимволы для безопасного поиска
+            const searchNumber = Number(search);
 
-            const searchConditions: any[] = [{ 'products.title': searchRegex }]
+            // Условия поиска: по названию товара ИЛИ по номеру заказа (если search — число)
+            const searchConditions: any[] = [{ 'products.title': searchRegex }];
 
             if (!Number.isNaN(searchNumber)) {
-                searchConditions.push({ orderNumber: searchNumber })
+                searchConditions.push({ orderNumber: searchNumber });
             }
 
+            // Добавляем условие поиска в пайплайн
             aggregatePipeline.push({
                 $match: {
                     $or: searchConditions,
                 },
-            })
+            });
 
-            filters.$or = searchConditions
+            filters.$or = searchConditions; // Добавляем в общий объект фильтров
         }
 
-        const sort: { [key: string]: any } = {}
+        // Валидация параметров сортировки
+        if (typeof sortField !== 'string' || typeof sortOrder !== 'string') {
+            return next(new BadRequestError('Некорректные параметры'));
+        }
 
+        // Формируем объект сортировки: -1 для desc, 1 для asc
+        const sort: { [key: string]: any } = {};
         if (sortField && sortOrder) {
-            sort[sortField as string] = sortOrder === 'desc' ? -1 : 1
+            sort[sortField as string] = sortOrder === 'desc' ? -1 : 1;
         }
 
+        // Ограничение максимального размера страницы (не более 10 записей)
+        const normalLimit = Math.min(Number(limit) || 10, 10);
+
+        // Добавляем этапы сортировки, пагинации и группировки в пайплайн
         aggregatePipeline.push(
-            { $sort: sort },
-            { $skip: (Number(page) - 1) * Number(limit) },
-            { $limit: Number(limit) },
+            { $sort: sort }, // Сортировка результатов
+            { $skip: (Number(page) - 1) * Number(normalLimit) }, // Пропуск записей для пагинации
+            { $limit: Number(normalLimit) }, // Ограничение количества возвращаемых записей
+            // Группировка для восстановления структуры документа заказа
             {
                 $group: {
                     _id: '$_id',
                     orderNumber: { $first: '$orderNumber' },
                     status: { $first: '$status' },
                     totalAmount: { $first: '$totalAmount' },
-                    products: { $push: '$products' },
+                    products: { $push: '$products' }, // Собираем товары обратно в массив
                     customer: { $first: '$customer' },
                     createdAt: { $first: '$createdAt' },
                 },
             }
-        )
+        );
 
-        const orders = await Order.aggregate(aggregatePipeline)
-        const totalOrders = await Order.countDocuments(filters)
-        const totalPages = Math.ceil(totalOrders / Number(limit))
+        // Выполняем агрегацию и подсчёт общего количества заказов
+        const orders = await Order.aggregate(aggregatePipeline);
+        const totalOrders = await Order.countDocuments(filters);
+        const totalPages = Math.ceil(totalOrders / Number(normalLimit)); // Расчёт общего числа страниц
 
+        // Возвращаем ответ с заказами и метаданными пагинации
         res.status(200).json({
             orders,
             pagination: {
                 totalOrders,
                 totalPages,
                 currentPage: Number(page),
-                pageSize: Number(limit),
+                pageSize: Number(normalLimit),
             },
-        })
+        });
     } catch (error) {
-        next(error)
+        next(error); // Передаём ошибку в middleware обработки ошибок
     }
-}
+};
 
+// Обработчик получения заказов текущего пользователя
 export const getOrdersCurrentUser = async (
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
     try {
-        const userId = res.locals.user._id
-        const { search, page = 1, limit = 5 } = req.query
+        const userId = res.locals.user._id; // ID авторизованного пользователя из middleware
+        const { search, page = 1, limit = 5 } = req.query; // Параметры поиска и пагинации
         const options = {
-            skip: (Number(page) - 1) * Number(limit),
+            skip: (Number(page) - 1) * Number(limit), // Расчёт смещения для пагинации
             limit: Number(limit),
-        }
+        };
 
+        // Получаем пользователя с заполненными заказами (включая товары и клиента)
         const user = await User.findById(userId)
             .populate({
                 path: 'orders',
                 populate: [
                     {
-                        path: 'products',
+                        path: 'products', // Заполняем информацию о товарах в заказах
                     },
                     {
-                        path: 'customer',
+                        path: 'customer', // Заполняем информацию о клиенте
                     },
                 ],
             })
@@ -179,36 +208,47 @@ export const getOrdersCurrentUser = async (
                     new NotFoundError(
                         'Пользователь по заданному id отсутствует в базе'
                     )
-            )
+            );
 
-        let orders = user.orders as unknown as IOrder[]
+        let orders = user.orders as unknown as IOrder[]; // Приводим тип для дальнейшей работы
 
+        // Фильтрация заказов по поисковому запросу
         if (search) {
-            // если не экранировать то получаем Invalid regular expression: /+1/i: Nothing to repeat
-            const searchRegex = new RegExp(search as string, 'i')
-            const searchNumber = Number(search)
-            const products = await Product.find({ title: searchRegex })
-            const productIds = products.map((product) => product._id)
+            // Экранируем специальные символы в строке поиска для безопасного использования в регулярном выражении
+            const searchRegex = new RegExp(search as string, 'i');
+            // Преобразуем поисковую строку в число (если это возможно)
+            const searchNumber = Number(search);
+            // Ищем товары, название которых соответствует поисковому запросу
+            const products = await Product.find({ title: searchRegex });
+            // Извлекаем ID найденных товаров
+            const productIds = products.map((product) => product._id);
 
+            // Фильтруем заказы: оставляем только те, которые содержат искомые товары
+            // или имеют номер, совпадающий с числовым значением search
             orders = orders.filter((order) => {
-                // eslint-disable-next-line max-len
+                // Проверяем, есть ли в заказе товары, которые соответствуют поисковому запросу
                 const matchesProductTitle = order.products.some((product) =>
                     productIds.some((id) => id.equals(product._id))
-                )
-                // eslint-disable-next-line max-len
+                );
+                // Проверяем, совпадает ли номер заказа с числовым значением search (если оно корректно)
                 const matchesOrderNumber =
                     !Number.isNaN(searchNumber) &&
-                    order.orderNumber === searchNumber
+                    order.orderNumber === searchNumber;
 
-                return matchesOrderNumber || matchesProductTitle
-            })
+                // Заказ подходит, если выполняется хотя бы одно из условий
+                return matchesOrderNumber || matchesProductTitle;
+            });
         }
 
-        const totalOrders = orders.length
-        const totalPages = Math.ceil(totalOrders / Number(limit))
+        // Подсчитываем общее количество заказов после фильтрации
+        const totalOrders = orders.length;
+        // Рассчитываем общее количество страниц для пагинации
+        const totalPages = Math.ceil(totalOrders / Number(limit));
 
-        orders = orders.slice(options.skip, options.skip + options.limit)
+        // Применяем пагинацию: выбираем только те заказы, которые должны быть показаны на текущей странице
+        orders = orders.slice(options.skip, options.skip + options.limit);
 
+        // Отправляем ответ клиенту: список заказов и метаданные пагинации
         return res.send({
             orders,
             pagination: {
@@ -217,19 +257,21 @@ export const getOrdersCurrentUser = async (
                 currentPage: Number(page),
                 pageSize: Number(limit),
             },
-        })
+        });
     } catch (error) {
-        next(error)
+        next(error); // Передаём ошибку в middleware обработки ошибок
     }
-}
+};
 
-// Get order by ID
+// Обработчик получения заказа по номеру
+// GET /order/:orderNumber
 export const getOrderByNumber = async (
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
     try {
+        // Ищем заказ по номеру, заполняем связанные документы (клиент, товары)
         const order = await Order.findOne({
             orderNumber: req.params.orderNumber,
         })
@@ -239,23 +281,29 @@ export const getOrderByNumber = async (
                     new NotFoundError(
                         'Заказ по заданному id отсутствует в базе'
                     )
-            )
-        return res.status(200).json(order)
+            );
+        // Возвращаем найденный заказ с статусом 200
+        return res.status(200).json(order);
     } catch (error) {
+        // Если ошибка связана с некорректным форматом ID — возвращаем ошибку 400
         if (error instanceof MongooseError.CastError) {
-            return next(new BadRequestError('Передан не валидный ID заказа'))
+            return next(new BadRequestError('Передан не валидный ID заказа'));
         }
-        return next(error)
+        // Все остальные ошибки передаём дальше
+        return next(error);
     }
-}
+};
 
+// Обработчик получения заказа текущего пользователя по номеру
+// GET /user/order/:orderNumber
 export const getOrderCurrentUserByNumber = async (
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
-    const userId = res.locals.user._id
+    const userId = res.locals.user._id; // ID авторизованного пользователя из middleware
     try {
+        // Ищем заказ по номеру, заполняем связанные документы
         const order = await Order.findOne({
             orderNumber: req.params.orderNumber,
         })
@@ -265,22 +313,28 @@ export const getOrderCurrentUserByNumber = async (
                     new NotFoundError(
                         'Заказ по заданному id отсутствует в базе'
                     )
-            )
+            );
+        // Проверяем, принадлежит ли заказ текущему пользователю
         if (!order.customer._id.equals(userId)) {
-            // Если нет доступа не возвращаем 403, а отдаем 404
+            // Для безопасности не сообщаем, что заказ существует, но принадлежит другому пользователю
+            // Вместо 403 возвращаем 404
             return next(
                 new NotFoundError('Заказ по заданному id отсутствует в базе')
-            )
+            );
         }
-        return res.status(200).json(order)
+        // Возвращаем заказ с статусом 200
+        return res.status(200).json(order);
     } catch (error) {
+        // Обрабатываем ошибку некорректного формата ID
         if (error instanceof MongooseError.CastError) {
-            return next(new BadRequestError('Передан не валидный ID заказа'))
+            return next(new BadRequestError('Передан не валидный ID заказа'));
         }
-        return next(error)
+        // Все остальные ошибки передаём дальше
+        return next(error);
     }
-}
+};
 
+// Обработчик создания нового заказа
 // POST /product
 export const createOrder = async (
     req: Request,
@@ -288,61 +342,84 @@ export const createOrder = async (
     next: NextFunction
 ) => {
     try {
-        const basket: IProduct[] = []
-        const products = await Product.find<IProduct>({})
-        const userId = res.locals.user._id
+        const basket: IProduct[] = []; // Корзина: массив товаров, включённых в заказ
+        // Получаем все товары из базы данных
+        const products = await Product.find<IProduct>({});
+        const userId = res.locals.user._id; // ID авторизованного пользователя
+        // Извлекаем данные заказа из тела запроса
         const { address, payment, phone, total, email, items, comment } =
-            req.body
+            req.body;
 
+        // Для каждого ID товара из заказа:
         items.forEach((id: Types.ObjectId) => {
-            const product = products.find((p) => p._id.equals(id))
+            // Находим товар в базе данных по ID
+            const product = products.find((p) => p._id.equals(id));
+            // Если товар не найден — выбрасываем ошибку
             if (!product) {
-                throw new BadRequestError(`Товар с id ${id} не найден`)
+                throw new BadRequestError(`Товар с id ${id} не найден`);
             }
+            // Если у товара нет цены (например, снят с продажи) — выбрасываем ошибку
             if (product.price === null) {
-                throw new BadRequestError(`Товар с id ${id} не продается`)
+                throw new BadRequestError(`Товар с id ${id} не продаётся`);
             }
-            return basket.push(product)
-        })
-        const totalBasket = basket.reduce((a, c) => a + c.price, 0)
+            // Добавляем товар в корзину
+            return basket.push(product);
+        });
+        // Считаем общую стоимость товаров в корзине
+        const totalBasket = basket.reduce((a, c) => a + c.price, 0);
+        // Сравниваем рассчитанную сумму с переданной в запросе
         if (totalBasket !== total) {
-            return next(new BadRequestError('Неверная сумма заказа'))
+            return next(new BadRequestError('Неверная сумма заказа'));
         }
 
+        // Очищаем комментарий от HTML-тегов для защиты от XSS-атак
+        const sanitizedComment = sanitizeHtml(comment || '', {
+            allowedTags: [], // Запрещаем все HTML-теги
+            allowedAttributes: {}, // Запрещаем все атрибуты
+        });
+
+        // Создаём новый документ заказа
         const newOrder = new Order({
-            totalAmount: total,
-            products: items,
-            payment,
-            phone,
-            email,
-            comment,
-            customer: userId,
-            deliveryAddress: address,
-        })
-        const populateOrder = await newOrder.populate(['customer', 'products'])
-        await populateOrder.save()
+            totalAmount: total, // Общая сумма заказа
+            products: items, // Массив ID товаров
+            payment, // Способ оплаты
+            phone, // Номер телефона клиента
+            email, // Email клиента
+            comment: sanitizedComment, // Очищенный комментарий
+            customer: userId, // ID пользователя, сделавшего заказ
+            deliveryAddress: address, // Адрес доставки
+        });
+        // Заполняем связанные документы (клиент, товары) в новом заказе
+        const populateOrder = await newOrder.populate(['customer', 'products']);
+        // Сохраняем заказ в базе данных
+        await populateOrder.save();
 
-        return res.status(200).json(populateOrder)
+        // Возвращаем созданный заказ с статусом 200
+        return res.status(200).json(populateOrder);
     } catch (error) {
+        // Обрабатываем ошибки валидации схемы Mongoose
         if (error instanceof MongooseError.ValidationError) {
-            return next(new BadRequestError(error.message))
+            return next(new BadRequestError(error.message));
         }
-        return next(error)
+        // Все остальные ошибки передаём дальше
+        return next(error);
     }
-}
+};
 
-// Update an order
+// Обработчик обновления заказа
+// PUT /order/:orderNumber
 export const updateOrder = async (
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
     try {
-        const { status } = req.body
+        const { status } = req.body; // Извлекаем новое значение статуса из тела запроса
+        // Обновляем заказ по номеру: устанавливаем новый статус, возвращаем обновлённый документ
         const updatedOrder = await Order.findOneAndUpdate(
             { orderNumber: req.params.orderNumber },
             { status },
-            { new: true, runValidators: true }
+            { new: true, runValidators: true } // new: true — возвращаем обновлённый документ; runValidators — запускаем валидаторы схемы
         )
             .orFail(
                 () =>
@@ -350,26 +427,33 @@ export const updateOrder = async (
                         'Заказ по заданному id отсутствует в базе'
                     )
             )
-            .populate(['customer', 'products'])
-        return res.status(200).json(updatedOrder)
-    } catch (error) {
-        if (error instanceof MongooseError.ValidationError) {
-            return next(new BadRequestError(error.message))
-        }
-        if (error instanceof MongooseError.CastError) {
-            return next(new BadRequestError('Передан не валидный ID заказа'))
-        }
-        return next(error)
-    }
-}
+            .populate(['customer', 'products']); // Заполняем связанные документы
 
-// Delete an order
+        // Возвращаем обновлённый заказ с статусом 200
+        return res.status(200).json(updatedOrder);
+    } catch (error) {
+        // Обрабатываем ошибки валидации схемы Mongoose
+        if (error instanceof MongooseError.ValidationError) {
+            return next(new BadRequestError(error.message));
+        }
+        // Обрабатываем ошибку некорректного формата ID
+        if (error instanceof MongooseError.CastError) {
+            return next(new BadRequestError('Передан не валидный ID заказа'));
+        }
+        // Все остальные ошибки передаём дальше в middleware
+        return next(error);
+    }
+};
+
+// Обработчик удаления заказа
+// DELETE /order/:id
 export const deleteOrder = async (
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
     try {
+        // Удаляем заказ по ID и сразу заполняем связанные документы (клиент, товары)
         const deletedOrder = await Order.findByIdAndDelete(req.params.id)
             .orFail(
                 () =>
@@ -377,12 +461,16 @@ export const deleteOrder = async (
                         'Заказ по заданному id отсутствует в базе'
                     )
             )
-            .populate(['customer', 'products'])
-        return res.status(200).json(deletedOrder)
+            .populate(['customer', 'products']);
+
+        // Возвращаем удалённый заказ с статусом 200 (можно было бы использовать 204, но здесь отдаём данные для наглядности)
+        return res.status(200).json(deletedOrder);
     } catch (error) {
+        // Обрабатываем ошибку некорректного формата ID
         if (error instanceof MongooseError.CastError) {
-            return next(new BadRequestError('Передан не валидный ID заказа'))
+            return next(new BadRequestError('Передан не валидный ID заказа'));
         }
-        return next(error)
+        // Все остальные ошибки передаём дальше
+        return next(error);
     }
-}
+};

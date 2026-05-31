@@ -3,6 +3,7 @@ import { FilterQuery } from 'mongoose'
 import NotFoundError from '../errors/not-found-error'
 import Order from '../models/order'
 import User, { IUser } from '../models/user'
+import { escapeRegex } from '../utils/escapeRegex'
 
 // TODO: Добавить guard admin
 // eslint-disable-next-line max-len
@@ -92,7 +93,7 @@ export const getCustomers = async (
         }
 
         if (search) {
-            const searchRegex = new RegExp(search as string, 'i')
+            const searchRegex = new RegExp(escapeRegex(search as string), 'i')
             const orders = await Order.find(
                 {
                     $or: [{ deliveryAddress: searchRegex }],
@@ -114,10 +115,12 @@ export const getCustomers = async (
             sort[sortField as string] = sortOrder === 'desc' ? -1 : 1
         }
 
+        const normalLimit = Math.min(Number(limit) || 10, 10)
+
         const options = {
             sort,
-            skip: (Number(page) - 1) * Number(limit),
-            limit: Number(limit),
+            skip: (Number(page) - 1) * Number(normalLimit),
+            limit: Number(normalLimit),
         }
 
         const users = await User.find(filters, null, options).populate([
@@ -137,7 +140,7 @@ export const getCustomers = async (
         ])
 
         const totalUsers = await User.countDocuments(filters)
-        const totalPages = Math.ceil(totalUsers / Number(limit))
+        const totalPages = Math.ceil(totalUsers / Number(normalLimit))
 
         res.status(200).json({
             customers: users,
@@ -145,7 +148,7 @@ export const getCustomers = async (
                 totalUsers,
                 totalPages,
                 currentPage: Number(page),
-                pageSize: Number(limit),
+                pageSize: Number(normalLimit),
             },
         })
     } catch (error) {

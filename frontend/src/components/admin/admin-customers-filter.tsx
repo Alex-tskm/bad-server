@@ -10,6 +10,17 @@ import Filter from '../filter'
 import styles from './admin.module.scss'
 import { customersFilterFields } from './helpers/customersFilterFields'
 
+interface CustomerFilters {
+    registrationDateFrom?: string;
+    registrationDateTo?: string;
+    lastOrderDateFrom?: string;
+    lastOrderDateTo?: string;
+    totalAmountFrom?: number;
+    totalAmountTo?: number;
+    orderCountFrom?: number;
+    orderCountTo?: number;
+}
+
 export default function AdminFilterCustomers() {
     const navigate = useNavigate()
     const dispatch = useDispatch()
@@ -17,10 +28,9 @@ export default function AdminFilterCustomers() {
     const { updateFilter, clearFilters } = useActionCreators(customersActions)
     const filterCustomersOption = useSelector(
         customersSelector.selectFilterOption
-    )
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    )     
 
-    const handleFilter = (filters: Record<string, any>) => {
+    const handleFilter = (filters: CustomerFilters) => {
         dispatch(updateFilter({ ...filters }))
         const queryParams: { [key: string]: string } = {}
         Object.entries(filters).forEach(([key, value]) => {

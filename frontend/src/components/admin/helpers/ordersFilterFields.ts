@@ -1,4 +1,13 @@
 import { FILTER_ORDER_TYPES, FilterType } from '../../../utils/constants'
+import { StatusType } from '@types'
+
+export interface OrdersFilterValues {
+    orderDateFrom?: string;
+    orderDateTo?: string;
+    status?: { value: StatusType }; 
+    totalAmountFrom?: number;
+    totalAmountTo?: number;
+}
 
 export const ordersFilterFields = [
     { label: 'Дата заказа' },
